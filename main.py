@@ -9,6 +9,7 @@ import numpy as np
 import csv
 import re
 
+from matplotlib.patches import Ellipse
 from shapely import geometry, Point
 
 sites = [
@@ -114,7 +115,6 @@ def marathon_show_finish_distribution():
 
 
 def marathon_analyze():
-    # plt.figure(figsize=(5, 5), dpi=50)
     from fiona.drvsupport import supported_drivers
     supported_drivers['KML'] = 'rw'
     aussenalster = gpd.read_file("aussenalster.kml")
@@ -149,6 +149,10 @@ def marathon_analyze():
     # labels = gpd.GeoDataFrame(labels_df, crs="EPSG:4326", geometry=[Point(x) for x in labels_df['coordinates']])
 
     hamburg = stadtpark.plot(color="#89ff8a")
+
+    # keep tilt ratio for drawing circles later
+    dx, dy = hamburg.transAxes.transform((1, 1)) - hamburg.transAxes.transform((0, 0))
+
     aussenalster.plot(ax=hamburg, color="#89b8ff")
     binnenalster.plot(ax=hamburg, color="#89b8ff")
     marathon_route.plot(ax=hamburg, color="#cecece", linewidth=3)
@@ -158,7 +162,13 @@ def marathon_analyze():
 
     for percent in np.arange(0, 1, 0.1):
         (x, y) = marathon_route.geometry[0].interpolate(percent, normalized=True).xy
-        circle = plt.Circle((x[0], y[0]), 0.01, zorder=10)
+
+        # calculate asymmetry of x and y direction
+        maxd = min(dx, dy)
+        width = .0005 * maxd / dy
+        height = .0005 * maxd / dx
+
+        circle = Ellipse((x[0], y[0]), width, height, zorder=10)
         hamburg.add_patch(circle)
 
     hamburg.text(9.9, 53.61, "12:01", bbox={'facecolor': 'white', 'alpha': 0.1, 'pad': 10})
