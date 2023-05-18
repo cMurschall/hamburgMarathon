@@ -2,10 +2,13 @@ from datetime import timedelta
 from bs4 import BeautifulSoup
 import geopy.distance
 import requests
+from datetime import datetime
 import matplotlib.pyplot as plt
+import matplotlib.animation as manimation
 import pandas as pd
 import geopandas as gpd
 import numpy as np
+from scipy.interpolate import CubicSpline
 import csv
 import re
 
@@ -128,10 +131,8 @@ def marathon_analyze():
 
     # distances.append((x[0], y[0]), 0)
     for previous, current in zip(zip(x, y), zip(x[1:], y[1:])):
-
-
         distance = geopy.distance.geodesic((previous[1], previous[0]), (current[1], current[0]))
-        total += distance.km
+        total += distance.m
         distances.append((current, distance.m))
 
     labels = [
@@ -146,19 +147,31 @@ def marathon_analyze():
         ((10.03026, 53.57334), "Uhlenhorst"),
     ]
 
+
+
+    FFMpegWriter = manimation.writers['ffmpeg']
+    metadata = dict(title='Haspa Marathon 2023', artist='Christian Murschall', comment='Zu viel Zeit')
+    writer = FFMpegWriter(fps=24, metadata=metadata, bitrate=900)
+
+
+
+
+    fig = plt.figure(figsize=(10, 10))
+    ax = fig.add_subplot(1, 1, 1)
     # labels = gpd.GeoDataFrame(labels_df, crs="EPSG:4326", geometry=[Point(x) for x in labels_df['coordinates']])
 
-    hamburg = stadtpark.plot(color="#89ff8a")
+
+    stadtpark.plot(ax = ax, color="#89ff8a")
 
     # keep tilt ratio for drawing circles later
-    dx, dy = hamburg.transAxes.transform((1, 1)) - hamburg.transAxes.transform((0, 0))
+    dx, dy = ax.transAxes.transform((1, 1)) - ax.transAxes.transform((0, 0))
 
-    aussenalster.plot(ax=hamburg, color="#89b8ff")
-    binnenalster.plot(ax=hamburg, color="#89b8ff")
-    marathon_route.plot(ax=hamburg, color="#cecece", linewidth=3)
+    aussenalster.plot(ax=ax, color="#89b8ff")
+    binnenalster.plot(ax=ax, color="#89b8ff")
+    marathon_route.plot(ax=ax, color="#cecece", linewidth=3)
 
     for label in labels:
-        hamburg.annotate(label[1], xy=label[0], ha='center', fontsize=8, color="#2d2d2d")
+        ax.annotate(label[1], xy=label[0], ha='center', fontsize=8, color="#2d2d2d")
 
     for percent in np.arange(0, 1, 0.1):
         (x, y) = marathon_route.geometry[0].interpolate(percent, normalized=True).xy
@@ -169,11 +182,113 @@ def marathon_analyze():
         height = .0005 * maxd / dx
 
         circle = Ellipse((x[0], y[0]), width, height, zorder=10)
-        hamburg.add_patch(circle)
+        ax.add_patch(circle)
 
-    hamburg.text(9.9, 53.61, "12:01", bbox={'facecolor': 'white', 'alpha': 0.1, 'pad': 10})
+    ax.text(9.9, 53.61, "12:01", bbox={'facecolor': 'white', 'alpha': 0.1, 'pad': 10})
+
+
+
+    runner_positions = get_interpolate_runner_positions()
+    with writer.saving(fig, "haspa.mp4", dpi=300):
+        for i in range(100):
+            writer.grab_frame()
+
     plt.show()
+
+
+def split_to_distance(row):
+    total_length = 42000
+
+    if "10km" in row:
+        return 10_000
+    if "15km" in row:
+        return 15_000
+    if "20km" in row:
+        return 20_000
+    if "25km" in row:
+        return 25_000
+    if "30km" in row:
+        return 30_000
+    if "35km" in row:
+        return 35_000
+    if "40km" in row:
+        return 40_000
+    if "Halb" in row:
+        return total_length / 2
+    if "Finish" in row:
+        return total_length
+    # ha ha = since 5km is in all uneven cases we need to put it at the bottom
+    if "5km" in row:
+        return 5_000
+    return 0
+
+
+def get_interpolate_runner_positions():
+    df_runners = pd.read_csv('runners.csv')
+    df_runners['Finish time netto'] = df_runners['Finish time netto'].apply(convert_to_seconds)
+    df_runners['Finish time brutto'] = df_runners['Finish time brutto'].apply(convert_to_seconds)
+
+    df_times = pd.read_csv("times.csv")
+
+    df_times["Distance"] = df_times["Split"].apply(split_to_distance)
+    df_times["Time"] = pd.to_datetime(df_times["Time Of Day"], format='%H:%M:%S', errors="coerce").apply(
+        lambda dt: dt.replace(day=23, month=4, year=2023))
+    df_times["Timestamp"] = df_times["Time"].astype('int64') // 10 ** 9
+
+    # female runners have a F in the start number, males don´t. We convert the columns to string so we can compare
+    df_times["Start number"] = df_times["Start number"].astype(str)
+    df_runners["Start number"] = df_runners["Start number"].astype(str)
+
+    time_stamps = pd.date_range(start=min(df_times["Time"]), end=max(df_times["Time"]), freq="10S")
+
+    positions_dict = {}
+    error_count = 0
+
+    for index, row in df_runners.iterrows():
+        times = df_times[df_times["Start number"] == str(row["Start number"])].sort_values(by=['Timestamp'])
+        try:
+            valid_values = times[times["Timestamp"] > 0][["Timestamp", "Distance"]]
+            cs = CubicSpline(valid_values["Timestamp"], valid_values["Distance"])
+            positions = cs(time_stamps.values.astype('int64') // 10 ** 9)
+            positions_dict[str(row["Start number"])] = positions
+        except Exception as e:
+            error_count += 1
+            print(e)
+            print("Error: " + row["Start number"])
+            print(f"{len(times['Timestamp']) - len(times['Distance'])}")
+            print("---------")
+
+            positions_dict[str(row["Start number"])] = np.zeros(len(time_stamps))
+            # this should always return the 0 distance
+
+    print("Error count " + str(error_count))
+    df_positions = pd.DataFrame.from_dict(positions_dict, orient='index', columns=time_stamps )
+    return df_positions
+
+
+def matplotlib_movie_test():
+
+
+    FFMpegWriter = manimation.writers['ffmpeg']
+    metadata = dict(title='Movie Test', artist='Matplotlib', comment='Movie support!')
+    writer = FFMpegWriter(fps=24, metadata=metadata, bitrate=900)
+
+    fig = plt.figure()
+    l, = plt.plot([], [], 'k-o')
+
+    plt.xlim(-5, 5)
+    plt.ylim(-5, 5)
+
+    x0, y0 = 0, 0
+
+    with writer.saving(fig, "writer_test.mp4", dpi=100):
+        for i in range(100):
+            x0 += 0.1 * np.random.randn()
+            y0 += 0.1 * np.random.randn()
+            l.set_data(x0, y0)
+            writer.grab_frame()
 
 
 if __name__ == '__main__':
     marathon_analyze()
+    print("done")
