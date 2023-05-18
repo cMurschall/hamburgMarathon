@@ -164,11 +164,17 @@ def analyze_marathon():
     fig = plt.figure(figsize=(10, 10))
 
     ax = fig.add_subplot(1, 1, 1)
+
     # labels = gpd.GeoDataFrame(labels_df, crs="EPSG:4326", geometry=[Point(x) for x in labels_df['coordinates']])
 
     with writer.saving(fig, "haspa.mp4", dpi=300):
         count_frames = df_positions.shape[1]
         for frame in trange(count_frames):
+
+            ax.set_xlim([9.882240795, 10.049447505])
+            ax.set_ylim([53.539870385, 53.629993715])
+
+
             column = df_positions.iloc[:, frame]
 
             stadtpark.plot(ax=ax, color="#89ff8a")
@@ -208,12 +214,14 @@ def analyze_marathon():
             #ax.scatter(x_pos_female, y_pos_female, c=color_female, s=2, zorder=11)
 
             colors = [color_female if "F" in i else color_male for i in runner_percentages.index]
-            ax.scatter(x_pos, y_pos, c="b", s=2, zorder=10)
+            ax.scatter(x_pos, y_pos, c="k", s=2, zorder=10)
 
-            font = {'family': 'serif', 'size': 20}
+            font = {'family': 'sans-serif', 'size': 20}
             box = {'facecolor': 'white', 'alpha': 0.1, 'pad': 10}
-            ax.text(9.9, 53.61, column.name.strftime("%H:%M"), fontdict=font, bbox=box)
 
+            ax.text(9.9, 53.61, column.name.strftime("%H:%M"), fontdict=font)
+
+            #plt.show()
             writer.grab_frame()
             ax.clear()
 
@@ -291,7 +299,7 @@ def interpolate_runner_positions():
 
 
 if __name__ == '__main__':
-    # scrape_marathon_data();
-    # interpolate_runner_positions()
+    scrape_marathon_data();
+    interpolate_runner_positions()
     analyze_marathon()
     print("done")
