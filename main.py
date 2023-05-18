@@ -8,10 +8,11 @@ import matplotlib.animation as manimation
 import pandas as pd
 import geopandas as gpd
 import numpy as np
-from scipy.interpolate import CubicSpline
+from scipy import interpolate
 import csv
 import re
-from tqdm import tqdm , trange
+from tqdm import tqdm, trange
+import random
 
 from matplotlib.patches import Ellipse
 from shapely import geometry, Point
@@ -22,7 +23,7 @@ sites = [
 ]
 
 
-def marathon_scraping():
+def scrape_marathon_data():
     with (
         open('runners.csv', mode='w') as runners_csvfile,
         open('times.csv', mode='w') as times_csvfile
@@ -118,7 +119,7 @@ def marathon_show_finish_distribution():
     plt.show()
 
 
-def marathon_analyze():
+def analyze_marathon():
     from fiona.drvsupport import supported_drivers
     supported_drivers['KML'] = 'rw'
     aussenalster = gpd.read_file("aussenalster.kml")
@@ -148,12 +149,16 @@ def marathon_analyze():
         ((10.03026, 53.57334), "Uhlenhorst"),
     ]
 
-
     FFMpegWriter = manimation.writers['ffmpeg']
     metadata = dict(title='Haspa Marathon 2023', artist='Christian Murschall', comment='Zu viel Zeit')
     writer = FFMpegWriter(fps=24, metadata=metadata, bitrate=900)
 
     df_positions = pd.read_pickle("positions.pkl")
+
+    path_offset_distance = 0.0005
+    runner_paths = [marathon_route.geometry[0].offset_curve(i) for i in np.linspace(-path_offset_distance, path_offset_distance, 5)]
+    runner_paths_dict = { i: random.choice(runner_paths) for i in df_positions.index }
+
 
 
     fig = plt.figure(figsize=(10, 10))
@@ -162,41 +167,36 @@ def marathon_analyze():
 
     with writer.saving(fig, "haspa.mp4", dpi=300):
         count_frames = df_positions.shape[1]
-        count_frames = 1000
-        for i in trange(count_frames):
-            column = df_positions.iloc[:, i]
+        count_frames = 1
+        for frame in trange(count_frames):
+            column = df_positions.iloc[:, frame]
 
             stadtpark.plot(ax=ax, color="#89ff8a")
 
             # keep tilt ratio for drawing circles later
-            dx, dy = ax.transAxes.transform((1, 1)) - ax.transAxes.transform((0, 0))
+            # dx, dy = ax.transAxes.transform((1, 1)) - ax.transAxes.transform((0, 0))
 
             aussenalster.plot(ax=ax, color="#89b8ff")
             binnenalster.plot(ax=ax, color="#89b8ff")
             marathon_route.plot(ax=ax, color="#cecece", linewidth=7)
+
 
             for label in labels:
                 ax.annotate(label[1], xy=label[0], ha='center', fontsize=8, color="#2d2d2d")
 
             # draw runners
             runner_percentages = column[column.between(0, 42000)] / 42000
-            for percent in runner_percentages:
-                (x, y) = marathon_route.geometry[0].interpolate(percent, normalized=True).xy
+            pos = runner_percentages.apply(lambda i: marathon_route.geometry[0].interpolate(i, normalized=True).xy)
+            x_pos, y_pos = zip(*pos)
 
-                # calculate asymmetry of x and y direction
-                point_size = .0008
-                maxd = min(dx, dy)
-                width = point_size* maxd / dy
-                height = point_size * maxd / dx
-
-                circle = Ellipse((x[0], y[0]), width, height, zorder=10)
-                ax.add_patch(circle)
+            colors = ["r" if "F" in i else "b" for i in runner_percentages.index]
+            ax.scatter(x_pos, y_pos, c=colors, s=2, zorder=10)
 
             ax.text(9.9, 53.61, column.name.strftime("%H:%M"), bbox={'facecolor': 'white', 'alpha': 0.1, 'pad': 10})
 
+            plt.show()
             writer.grab_frame()
             ax.clear()
-
 
 
 def split_to_distance(row):
@@ -226,7 +226,7 @@ def split_to_distance(row):
     return 0
 
 
-def get_interpolate_runner_positions():
+def interpolate_runner_positions():
     df_runners = pd.read_csv('runners.csv')
     df_runners['Finish time netto'] = df_runners['Finish time netto'].apply(convert_to_seconds)
     df_runners['Finish time brutto'] = df_runners['Finish time brutto'].apply(convert_to_seconds)
@@ -242,7 +242,8 @@ def get_interpolate_runner_positions():
     df_times["Start number"] = df_times["Start number"].astype(str)
     df_runners["Start number"] = df_runners["Start number"].astype(str)
 
-    time_stamps = pd.date_range(start=min(df_times["Time"]), end=max(df_times["Time"]), freq="10S")
+    start_time = pd.to_datetime('2023-04-23 09:29', format='%Y-%m-%d %H:%M')
+    time_stamps = pd.date_range(start=start_time, end=max(df_times["Time"]), freq="10S")
 
     positions_dict = {}
     error_count = 0
@@ -251,7 +252,8 @@ def get_interpolate_runner_positions():
         times = df_times[df_times["Start number"] == str(row["Start number"])].sort_values(by=['Timestamp'])
         try:
             valid_values = times[times["Timestamp"] > 0][["Timestamp", "Distance"]]
-            cs = CubicSpline(valid_values["Timestamp"], valid_values["Distance"])
+            cs = interpolate.CubicSpline(valid_values["Timestamp"], valid_values["Distance"])
+            cs = interpolate.interp1d(valid_values["Timestamp"], valid_values["Distance"], fill_value='extrapolate')
             positions = cs(time_stamps.values.astype('int64') // 10 ** 9)
             positions_dict[str(row["Start number"])] = positions
         except Exception as e:
@@ -261,38 +263,16 @@ def get_interpolate_runner_positions():
             print(f"{len(times['Timestamp']) - len(times['Distance'])}")
             print("---------")
 
-            positions_dict[str(row["Start number"])] = np.zeros(len(time_stamps))
+            # positions_dict[str(row["Start number"])] = np.zeros(len(time_stamps))
             # this should always return the 0 distance
 
     print("Error count " + str(error_count))
-    df_positions = pd.DataFrame.from_dict(positions_dict, orient='index', columns=time_stamps )
+    df_positions = pd.DataFrame.from_dict(positions_dict, orient='index', columns=time_stamps)
     df_positions.to_pickle("positions.pkl")
 
 
-def matplotlib_movie_test():
-
-
-    FFMpegWriter = manimation.writers['ffmpeg']
-    metadata = dict(title='Movie Test', artist='Matplotlib', comment='Movie support!')
-    writer = FFMpegWriter(fps=24, metadata=metadata, bitrate=900)
-
-    fig = plt.figure()
-    l, = plt.plot([], [], 'k-o')
-
-    plt.xlim(-5, 5)
-    plt.ylim(-5, 5)
-
-    x0, y0 = 0, 0
-
-    with writer.saving(fig, "writer_test.mp4", dpi=100):
-        for i in range(100):
-            x0 += 0.1 * np.random.randn()
-            y0 += 0.1 * np.random.randn()
-            l.set_data(x0, y0)
-            writer.grab_frame()
-
-
 if __name__ == '__main__':
-    # get_interpolate_runner_positions()
-    marathon_analyze()
+    # scrape_marathon_data();
+    # interpolate_runner_positions()
+    analyze_marathon()
     print("done")
