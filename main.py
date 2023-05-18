@@ -11,6 +11,7 @@ import numpy as np
 from scipy.interpolate import CubicSpline
 import csv
 import re
+from tqdm import tqdm , trange
 
 from matplotlib.patches import Ellipse
 from shapely import geometry, Point
@@ -148,52 +149,54 @@ def marathon_analyze():
     ]
 
 
-
     FFMpegWriter = manimation.writers['ffmpeg']
     metadata = dict(title='Haspa Marathon 2023', artist='Christian Murschall', comment='Zu viel Zeit')
     writer = FFMpegWriter(fps=24, metadata=metadata, bitrate=900)
 
-
+    df_positions = pd.read_pickle("positions.pkl")
 
 
     fig = plt.figure(figsize=(10, 10))
     ax = fig.add_subplot(1, 1, 1)
     # labels = gpd.GeoDataFrame(labels_df, crs="EPSG:4326", geometry=[Point(x) for x in labels_df['coordinates']])
 
-
-    stadtpark.plot(ax = ax, color="#89ff8a")
-
-    # keep tilt ratio for drawing circles later
-    dx, dy = ax.transAxes.transform((1, 1)) - ax.transAxes.transform((0, 0))
-
-    aussenalster.plot(ax=ax, color="#89b8ff")
-    binnenalster.plot(ax=ax, color="#89b8ff")
-    marathon_route.plot(ax=ax, color="#cecece", linewidth=3)
-
-    for label in labels:
-        ax.annotate(label[1], xy=label[0], ha='center', fontsize=8, color="#2d2d2d")
-
-    for percent in np.arange(0, 1, 0.1):
-        (x, y) = marathon_route.geometry[0].interpolate(percent, normalized=True).xy
-
-        # calculate asymmetry of x and y direction
-        maxd = min(dx, dy)
-        width = .0005 * maxd / dy
-        height = .0005 * maxd / dx
-
-        circle = Ellipse((x[0], y[0]), width, height, zorder=10)
-        ax.add_patch(circle)
-
-    ax.text(9.9, 53.61, "12:01", bbox={'facecolor': 'white', 'alpha': 0.1, 'pad': 10})
-
-
-
-    runner_positions = get_interpolate_runner_positions()
     with writer.saving(fig, "haspa.mp4", dpi=300):
-        for i in range(100):
-            writer.grab_frame()
+        count_frames = df_positions.shape[1]
+        count_frames = 1000
+        for i in trange(count_frames):
+            column = df_positions.iloc[:, i]
 
-    plt.show()
+            stadtpark.plot(ax=ax, color="#89ff8a")
+
+            # keep tilt ratio for drawing circles later
+            dx, dy = ax.transAxes.transform((1, 1)) - ax.transAxes.transform((0, 0))
+
+            aussenalster.plot(ax=ax, color="#89b8ff")
+            binnenalster.plot(ax=ax, color="#89b8ff")
+            marathon_route.plot(ax=ax, color="#cecece", linewidth=7)
+
+            for label in labels:
+                ax.annotate(label[1], xy=label[0], ha='center', fontsize=8, color="#2d2d2d")
+
+            # draw runners
+            runner_percentages = column[column.between(0, 42000)] / 42000
+            for percent in runner_percentages:
+                (x, y) = marathon_route.geometry[0].interpolate(percent, normalized=True).xy
+
+                # calculate asymmetry of x and y direction
+                point_size = .0008
+                maxd = min(dx, dy)
+                width = point_size* maxd / dy
+                height = point_size * maxd / dx
+
+                circle = Ellipse((x[0], y[0]), width, height, zorder=10)
+                ax.add_patch(circle)
+
+            ax.text(9.9, 53.61, column.name.strftime("%H:%M"), bbox={'facecolor': 'white', 'alpha': 0.1, 'pad': 10})
+
+            writer.grab_frame()
+            ax.clear()
+
 
 
 def split_to_distance(row):
@@ -263,7 +266,7 @@ def get_interpolate_runner_positions():
 
     print("Error count " + str(error_count))
     df_positions = pd.DataFrame.from_dict(positions_dict, orient='index', columns=time_stamps )
-    return df_positions
+    df_positions.to_pickle("positions.pkl")
 
 
 def matplotlib_movie_test():
@@ -290,5 +293,6 @@ def matplotlib_movie_test():
 
 
 if __name__ == '__main__':
+    # get_interpolate_runner_positions()
     marathon_analyze()
     print("done")
