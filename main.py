@@ -156,18 +156,18 @@ def analyze_marathon():
     df_positions = pd.read_pickle("positions.pkl")
 
     path_offset_distance = 0.0005
-    runner_paths = [marathon_route.geometry[0].offset_curve(i) for i in np.linspace(-path_offset_distance, path_offset_distance, 5)]
-    runner_paths_dict = { i: random.choice(runner_paths) for i in df_positions.index }
-
-
+    runner_paths = [marathon_route.geometry[0].offset_curve(i) for i in
+                    np.linspace(-path_offset_distance, path_offset_distance, 4)]
+    runner_paths.append(marathon_route.geometry[0])
+    runner_paths_dict = {i: random.choice(runner_paths) for i in df_positions.index}
 
     fig = plt.figure(figsize=(10, 10))
+
     ax = fig.add_subplot(1, 1, 1)
     # labels = gpd.GeoDataFrame(labels_df, crs="EPSG:4326", geometry=[Point(x) for x in labels_df['coordinates']])
 
     with writer.saving(fig, "haspa.mp4", dpi=300):
         count_frames = df_positions.shape[1]
-        count_frames = 1
         for frame in trange(count_frames):
             column = df_positions.iloc[:, frame]
 
@@ -180,21 +180,40 @@ def analyze_marathon():
             binnenalster.plot(ax=ax, color="#89b8ff")
             marathon_route.plot(ax=ax, color="#cecece", linewidth=7)
 
-
             for label in labels:
                 ax.annotate(label[1], xy=label[0], ha='center', fontsize=8, color="#2d2d2d")
 
             # draw runners
             runner_percentages = column[column.between(0, 42000)] / 42000
-            pos = runner_percentages.apply(lambda i: marathon_route.geometry[0].interpolate(i, normalized=True).xy)
+
+            def find_position_of_runner(i):
+                path = runner_paths_dict[i[0]]
+                return path.interpolate(i[1], normalized=True).xy
+
+            pos = pd.Series(runner_percentages.reset_index().apply(find_position_of_runner, axis=1).values,
+                            index=runner_percentages.index)
+            # pos = runner_percentages.apply(lambda i: marathon_route.geometry[0].interpolate(i, normalized=True).xy)
+
             x_pos, y_pos = zip(*pos)
 
-            colors = ["r" if "F" in i else "b" for i in runner_percentages.index]
-            ax.scatter(x_pos, y_pos, c=colors, s=2, zorder=10)
+            # pos_male = pos[[not 'F' in s for s in pos.index]]
+            # pos_female = pos[['F' in s for s in pos.index]]
 
-            ax.text(9.9, 53.61, column.name.strftime("%H:%M"), bbox={'facecolor': 'white', 'alpha': 0.1, 'pad': 10})
+            # x_pos_male, y_pos_male = zip(*pos_male)
+            # x_pos_female, y_pos_female = zip(*pos_female)
 
-            plt.show()
+            color_male = "#00C4AA"
+            color_female = "#8700F9"
+            #ax.scatter(x_pos_male, y_pos_male, c=color_male, s=2, zorder=10)
+            #ax.scatter(x_pos_female, y_pos_female, c=color_female, s=2, zorder=11)
+
+            colors = [color_female if "F" in i else color_male for i in runner_percentages.index]
+            ax.scatter(x_pos, y_pos, c="b", s=2, zorder=10)
+
+            font = {'family': 'serif', 'size': 20}
+            box = {'facecolor': 'white', 'alpha': 0.1, 'pad': 10}
+            ax.text(9.9, 53.61, column.name.strftime("%H:%M"), fontdict=font, bbox=box)
+
             writer.grab_frame()
             ax.clear()
 
