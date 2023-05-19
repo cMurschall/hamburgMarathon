@@ -31,8 +31,8 @@ sites = [
 
 def scrape_marathon_data():
     with (
-        open('runners.csv', mode='w') as runners_csvfile,
-        open('times.csv', mode='w') as times_csvfile
+        open('runners.csv', mode='w', encoding='utf-8') as runners_csvfile,
+        open('times.csv', mode='w', encoding='utf-8') as times_csvfile
     ):
         runners_writer = csv.writer(runners_csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL, )
         times_writer = csv.writer(times_csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -127,7 +127,14 @@ def marathon_show_finish_distribution():
 
 def analyze_marathon():
     from fiona.drvsupport import supported_drivers
-    supported_drivers['KML'] = 'rw'
+    if os.name == 'nt':
+            supported_drivers['LIBKML'] = 'rw'
+            plt.rcParams['animation.ffmpeg_path'] = 'C:\\ffmpeg\\bin\\ffmpeg.exe' 
+    else: 
+        supported_drivers['KML'] = 'rw'
+
+
+
     aussenalster = gpd.read_file("aussenalster.kml")
     binnenalster = gpd.read_file("binnenalster.kml")
     stadtpark = gpd.read_file("stadtpark.kml")
@@ -160,6 +167,11 @@ def analyze_marathon():
     writer = FFMpegWriter(fps=24, metadata=metadata, bitrate=900)
 
     df_positions = pd.read_pickle("positions.pkl")
+    df_runners = pd.read_csv('runners.csv')
+    df_runners["Gender"] = df_runners["Start number"].apply(lambda x: 'f' if 'F' in x else 'm')
+
+
+    top_running_countries = df_runners['Country'].value_counts().head(20).index.to_list()
 
     path_offset_distance = 0.0005
     runner_paths = [marathon_route.geometry[0].offset_curve(i) for i in
@@ -178,8 +190,7 @@ def analyze_marathon():
 
     with writer.saving(fig, f"haspa{i}.mp4", dpi=300):
         count_frames = df_positions.shape[1]
-
-        # count_frames = 200
+        # for frame in trange(0, count_frames, 100):
         for frame in trange(count_frames):
 
             ax.set_xlim([9.882240795, 10.049447505])
@@ -202,6 +213,9 @@ def analyze_marathon():
 
             # draw runners
             runner_percentages = column[column.between(0, 42000)] / 42000
+
+     
+
 
             def find_position_of_runner(i):
                 path = runner_paths_dict[i[0]]
@@ -227,12 +241,29 @@ def analyze_marathon():
             colors = [color_female if "F" in i else color_male for i in runner_percentages.index]
             ax.scatter(x_pos, y_pos, c='k', alpha=0.5, s=2, zorder=10)
 
-            font = {'family': 'sans-serif', 'size': 20}
-            # box = {'facecolor': 'white', 'alpha': 0.1, 'pad': 10}
 
-            ax.text(9.9, 53.61, column.name.strftime("%H:%M"), fontdict=font)
 
-            #plt.show()
+            ax.text(9.9, 53.62, column.name.strftime("%H:%M"), fontdict={'family': 'sans-serif', 'size': 20})
+
+
+            # df_current_runners = df_runners[df_runners['Start number'].isin(runner_percentages.index)]['Country'].value_counts()
+            # df_current_runners = df_current_runners[df_current_runners.index.isin(top_running_countries)]
+            
+            df_current_runners  = df_runners[df_runners['Start number'].isin(runner_percentages.index)].groupby(['Country', 'Gender']).size()
+
+            for index, country  in enumerate(top_running_countries):
+                
+                count_males = 0
+                count_females = 0
+                current_country = df_current_runners.get(country, None)
+                if current_country is not None:
+                    count_males = current_country.get('m', 0)
+                    count_females = current_country.get('f', 0)
+
+                text = f'♂ {count_males: >4} ♀ {count_females: >4}' 
+                ax.text(9.9, 53.615 - (index * 0.003), text, fontdict={'family': 'monospace', 'size': 12})
+
+            # plt.show()
             writer.grab_frame()
             ax.clear()
 
@@ -316,6 +347,6 @@ def interpolate_runner_positions():
 
 if __name__ == '__main__':
     # scrape_marathon_data();
-    interpolate_runner_positions()
+    # interpolate_runner_positions()
     analyze_marathon()
     print("done")

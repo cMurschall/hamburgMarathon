@@ -1,17 +1,23 @@
 [tool.poetry]
-name = "haspamarathon"
+name = "hamburgmarathon"
 version = "0.1.0"
 description = ""
-authors = ["Christian Murschall <christian@murschall.net>"]
+authors = ["Christian Murschall <christian.murschall@coherent.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.10"
-beautifulsoup4 = "^4.12.2"
-pandas = "^2.0.1"
+python = "3.11.3"
+bs4 = "^0.0.1"
+geopy = "^2.3.0"
 matplotlib = "^3.7.1"
+pandas = "^2.0.1"
 geopandas = "^0.13.0"
+numpy = "^1.24.3"
+scipy = "^1.10.1"
 tqdm = "^4.65.0"
+requests = "^2.30.0"
+lxml = "^4.9.2"
+ffmpeg = "^1.4"
 
 
 [build-system]
