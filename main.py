@@ -2,7 +2,6 @@ from datetime import timedelta
 from bs4 import BeautifulSoup
 import geopy.distance
 import requests
-from datetime import datetime
 import matplotlib.pyplot as plt
 import matplotlib.animation as manimation
 import pandas as pd
@@ -11,8 +10,15 @@ import numpy as np
 from scipy import interpolate
 import csv
 import re
-from tqdm import tqdm, trange
+from tqdm import trange
 import random
+import os
+
+
+
+
+
+
 
 from matplotlib.patches import Ellipse
 from shapely import geometry, Point
@@ -166,9 +172,14 @@ def analyze_marathon():
     ax = fig.add_subplot(1, 1, 1)
 
     # labels = gpd.GeoDataFrame(labels_df, crs="EPSG:4326", geometry=[Point(x) for x in labels_df['coordinates']])
+    i = 1
+    while os.path.exists(f"haspa{i}.mp4"):
+        i += 1
 
-    with writer.saving(fig, "haspa.mp4", dpi=300):
+    with writer.saving(fig, f"haspa{i}.mp4", dpi=300):
         count_frames = df_positions.shape[1]
+
+        # count_frames = 200
         for frame in trange(count_frames):
 
             ax.set_xlim([9.882240795, 10.049447505])
@@ -214,10 +225,10 @@ def analyze_marathon():
             #ax.scatter(x_pos_female, y_pos_female, c=color_female, s=2, zorder=11)
 
             colors = [color_female if "F" in i else color_male for i in runner_percentages.index]
-            ax.scatter(x_pos, y_pos, c="k", s=2, zorder=10)
+            ax.scatter(x_pos, y_pos, c='k', alpha=0.5, s=2, zorder=10)
 
             font = {'family': 'sans-serif', 'size': 20}
-            box = {'facecolor': 'white', 'alpha': 0.1, 'pad': 10}
+            # box = {'facecolor': 'white', 'alpha': 0.1, 'pad': 10}
 
             ax.text(9.9, 53.61, column.name.strftime("%H:%M"), fontdict=font)
 
@@ -269,8 +280,10 @@ def interpolate_runner_positions():
     df_times["Start number"] = df_times["Start number"].astype(str)
     df_runners["Start number"] = df_runners["Start number"].astype(str)
 
-    start_time = pd.to_datetime('2023-04-23 09:29', format='%Y-%m-%d %H:%M')
+    start_time = pd.to_datetime('2023-04-23 09:30', format='%Y-%m-%d %H:%M')
     time_stamps = pd.date_range(start=start_time, end=max(df_times["Time"]), freq="10S")
+    start_timestamp = np.int64(start_time.asm8.astype(np.int64) / 10 ** 9)
+
 
     positions_dict = {}
     error_count = 0
@@ -279,8 +292,11 @@ def interpolate_runner_positions():
         times = df_times[df_times["Start number"] == str(row["Start number"])].sort_values(by=['Timestamp'])
         try:
             valid_values = times[times["Timestamp"] > 0][["Timestamp", "Distance"]]
-            cs = interpolate.CubicSpline(valid_values["Timestamp"], valid_values["Distance"])
-            cs = interpolate.interp1d(valid_values["Timestamp"], valid_values["Distance"], fill_value='extrapolate')
+
+            x = np.concatenate(([start_timestamp], valid_values["Timestamp"]))
+            y = np.concatenate(([0], valid_values["Distance"]))
+            # cs = interpolate.CubicSpline(x, y)
+            cs = interpolate.interp1d(x, y, fill_value='extrapolate')
             positions = cs(time_stamps.values.astype('int64') // 10 ** 9)
             positions_dict[str(row["Start number"])] = positions
         except Exception as e:
@@ -299,7 +315,7 @@ def interpolate_runner_positions():
 
 
 if __name__ == '__main__':
-    scrape_marathon_data();
+    # scrape_marathon_data();
     interpolate_runner_positions()
     analyze_marathon()
     print("done")
